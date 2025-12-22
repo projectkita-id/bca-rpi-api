@@ -1,4 +1,5 @@
 import json
+from schema import StartBatchRequest
 from services import normalize_item, excel_to_json
 from models import create_record, finish_record, get_record
 from fastapi import FastAPI, HTTPException, UploadFile, File
@@ -10,11 +11,11 @@ def health():
     return {"status": "ok"}
 
 @app.post("/batch/start")
-def start_batch(scanner_used: list[int], batch_code: str | None = None):
-    record_id = create_record(scanner_used, batch_code)
+def start_batch(payload: StartBatchRequest):
+    record_id = create_record(payload.scanner_used, payload.batch_code)
     return {
         "record_id": record_id,
-        "scanner_used": scanner_used    
+        "scanner_used": payload.scanner_used    
     }
 
 @app.post("/batch/{record_id}/finish")
