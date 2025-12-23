@@ -4,7 +4,7 @@ import pandas
 from openpyxl import Workbook
 from datetime import datetime
 from fastapi import HTTPException
-from openpyxl.styles import PatternFill
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 
 def normalize_item(item: dict, record_id: int, scanner_used: list[int]):
     def get(scanner_key):
@@ -96,8 +96,23 @@ def excel_to_json(file, filename: str):
     except Exception as e:
         raise HTTPException(500, str(e))
 
+HEADER_FILL = PatternFill(
+    start_color="D9E1F2",
+    end_color="D9E1F2",
+    fill_type="solid"
+)
+
+THIN_BORDER = Border(
+    left=Side(style="thin"),
+    right=Side(style="thin"),
+    top=Side(style="thin"),
+    bottom=Side(style="thin")
+)
+
 GREEN = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
 RED   = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+HEADER_FONT = Font(bold=True)
+CENTER_ALIGN = Alignment(horizontal="center", vertical="center")
 
 def export_record_to_excel(record_id, items, scanner_used):
     wb = Workbook()
@@ -114,6 +129,26 @@ def export_record_to_excel(record_id, items, scanner_used):
     ]
     ws.append(headers)
 
+    ws.column_dimensions["A"].width = 12
+    ws.column_dimensions["B"].width = 25
+    ws.column_dimensions["C"].width = 35
+    ws.column_dimensions["D"].width = 20
+    ws.column_dimensions["E"].width = 10
+    ws.column_dimensions["F"].width = 20
+
+    max_row = ws.max_row
+    max_col = ws.max_column
+
+    for row in range(1, max_row + 1):
+        for col in range(1, max_col + 1):
+            ws.cell(row=row, column=col).border = THIN_BORDER
+
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER_ALIGN
+
     for row_idx, item in enumerate(items, start=2):
         ws.append([
             item["item_id"],
@@ -124,11 +159,13 @@ def export_record_to_excel(record_id, items, scanner_used):
             item["created_at"]
         ])
 
-        # ===== CONDITIONAL COLORING =====
+        for col in range(1, 7):
+            ws.cell(row=row_idx, column=col).alignment = CENTER_ALIGN
+
         scanner_map = {
-            1: ("scanner_1", 2),
-            2: ("scanner_2", 3),
-            3: ("scanner_3", 4),
+            1: ("scanner_1_valid", 2),
+            2: ("scanner_2_valid", 3),
+            3: ("scanner_3_valid", 4),
         }
 
         for scanner_id in scanner_used:
