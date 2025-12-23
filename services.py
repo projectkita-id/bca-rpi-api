@@ -45,24 +45,22 @@ def normalize_item(item: dict, record_id: int, scanner_used: list[int]):
         "fallback": fallback
     }
 
-
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JSON_DIR = os.path.join(BASE_DIR, "uploads", "json")
 os.makedirs(JSON_DIR, exist_ok=True)
 
-REQUIRED_COLUMNS = {
-    "scaner 1": "scanner_1",
-    "scaner 2": "scanner_2",
-    "scaner 3": "scanner_3",
-}
-
 def excel_to_json(file, filename: str):
     try:
+        file.seek(0)
         df = pandas.read_excel(file, dtype=str)
 
-        normalized_cols = {c.lower().strip(): c for c in df.columns}
+        normalized_cols = {
+            c.lower().strip(): c for c in df.columns
+        }
 
-        for col in REQUIRED_COLUMNS:
+        required = ["scanner 1", "scanner 2", "scanner 3"]
+
+        for col in required:
             if col not in normalized_cols:
                 raise HTTPException(
                     400,
@@ -71,12 +69,16 @@ def excel_to_json(file, filename: str):
 
         result = []
 
-        for idx, row in df.iterrows():
+        for _, row in df.iterrows():
+            def clean(value):
+                if pandas.isna(value):
+                    return None
+                return str(value).strip()
+
             result.append({
-                "item_id": idx + 1,
-                "scanner_1": row[normalized_cols["scaner 1"]],
-                "scanner_2": row[normalized_cols["scaner 2"]],
-                "scanner_3": row[normalized_cols["scaner 3"]],
+                "Scanner 1": clean(row[normalized_cols["scanner 1"]]),
+                "Scanner 2": clean(row[normalized_cols["scanner 2"]]),
+                "Scanner 3": clean(row[normalized_cols["scanner 3"]]),
             })
 
         json_filename = filename.replace(".xlsx", ".json")
@@ -94,7 +96,8 @@ def excel_to_json(file, filename: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, f"Excel parsing error: {str(e)}")
+
 
 HEADER_FILL = PatternFill(
     start_color="D9E1F2",
