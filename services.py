@@ -1,6 +1,7 @@
 import os
 import json
 import pandas 
+from io import BytesIO
 from openpyxl import Workbook
 from datetime import datetime
 from fastapi import HTTPException
@@ -45,21 +46,17 @@ def normalize_item(item: dict, record_id: int, scanner_used: list[int]):
         "fallback": fallback
     }
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-JSON_DIR = os.path.join(BASE_DIR, "uploads", "json")
-os.makedirs(JSON_DIR, exist_ok=True)
-
-def excel_to_json(file, filename: str):
+def excel_to_json(file):
     try:
         file.seek(0)
         df = pandas.read_excel(file, dtype=str)
 
+        # Normalisasi header
         normalized_cols = {
             c.lower().strip(): c for c in df.columns
         }
 
         required = ["scanner 1", "scanner 2", "scanner 3"]
-
         for col in required:
             if col not in normalized_cols:
                 raise HTTPException(
@@ -67,38 +64,36 @@ def excel_to_json(file, filename: str):
                     f"Missing required column: {col.upper()}"
                 )
 
+        def clean(value):
+            if pandas.isna(value):
+                return None
+            return str(value).strip()
+
         result = []
-
         for _, row in df.iterrows():
-            def clean(value):
-                if pandas.isna(value):
-                    return None
-                return str(value).strip()
-
             result.append({
                 "Scanner 1": clean(row[normalized_cols["scanner 1"]]),
                 "Scanner 2": clean(row[normalized_cols["scanner 2"]]),
                 "Scanner 3": clean(row[normalized_cols["scanner 3"]]),
             })
 
-        json_filename = filename.replace(".xlsx", ".json")
-        json_path = os.path.join(JSON_DIR, json_filename)
+        # === SINGLE DATABASE FILE ===
+        db_path = os.path.expanduser("~/scanner-db.json")
 
-        with open(json_path, "w", encoding="utf-8") as f:
+        with open(db_path, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=2, ensure_ascii=False)
 
         return {
-            "json_file": json_filename,
+            "status": "ok",
             "items": len(result),
-            "data": result
+            "path": db_path
         }
 
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, f"Excel parsing error: {str(e)}")
-
-
+    
 HEADER_FILL = PatternFill(
     start_color="D9E1F2",
     end_color="D9E1F2",
@@ -139,19 +134,15 @@ def export_record_to_excel(record_id, items, scanner_used):
     ws.column_dimensions["E"].width = 10
     ws.column_dimensions["F"].width = 20
 
-    max_row = ws.max_row
-    max_col = ws.max_column
-
-    for row in range(1, max_row + 1):
-        for col in range(1, max_col + 1):
-            ws.cell(row=row, column=col).border = THIN_BORDER
-
+    # Header styling
     for col in range(1, len(headers) + 1):
         cell = ws.cell(row=1, column=col)
         cell.fill = HEADER_FILL
         cell.font = HEADER_FONT
         cell.alignment = CENTER_ALIGN
+        cell.border = THIN_BORDER
 
+    # Data rows
     for row_idx, item in enumerate(items, start=2):
         ws.append([
             item["item_id"],
@@ -163,7 +154,9 @@ def export_record_to_excel(record_id, items, scanner_used):
         ])
 
         for col in range(1, 7):
-            ws.cell(row=row_idx, column=col).alignment = CENTER_ALIGN
+            cell = ws.cell(row=row_idx, column=col)
+            cell.alignment = CENTER_ALIGN
+            cell.border = THIN_BORDER
 
         scanner_map = {
             1: ("scanner_1_valid", 2),
@@ -173,20 +166,18 @@ def export_record_to_excel(record_id, items, scanner_used):
 
         for scanner_id in scanner_used:
             key, col = scanner_map[scanner_id]
-            valid_key = f"{key}_valid"
+            valid = item.get(key)
 
-            valid = item.get(valid_key)
             cell = ws.cell(row=row_idx, column=col)
-
             if valid is True:
                 cell.fill = GREEN
             elif valid is False:
                 cell.fill = RED
-            # else → no color
 
-    os.makedirs("exports", exist_ok=True)
+    # === SAVE TO MEMORY (NOT DISK) ===
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
     filename = f"batch_{record_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    path = os.path.join("exports", filename)
-
-    wb.save(path)
-    return path
+    return output, filename

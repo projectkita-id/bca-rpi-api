@@ -1,7 +1,7 @@
 import os
 import json
 from schema import StartBatchRequest
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from services import normalize_item, excel_to_json, export_record_to_excel
 from models import create_record, finish_record, get_record, get_record_items
@@ -53,13 +53,8 @@ async def upload_excel(file: UploadFile = File(...)):
     if not file.filename.endswith(".xlsx"):
         raise HTTPException(400, "Only .xlsx files are allowed")
 
-    result = excel_to_json(file.file, file.filename)
-
-    return {
-        "status": "ok",
-        "items": result["items"],
-        "json_file": result["json_file"]
-    }
+    result = excel_to_json(file.file)
+    return result
 
 @app.get("/download/{record_id}")
 def download_record(record_id: int):
@@ -72,18 +67,19 @@ def download_record(record_id: int):
         raise HTTPException(400, "Record not completed yet")
 
     items = get_record_items(record_id)
-
     if not items:
         raise HTTPException(404, "No items found for this record")
-    
+
     scanner_used = json.loads(record["scanner_used"])
-    filepath = export_record_to_excel(record_id, items, scanner_used)
 
-    if not filepath:
-        raise HTTPException(500, "Failed to generate Excel")
+    file_obj, filename = export_record_to_excel(
+        record_id, items, scanner_used
+    )
 
-    return FileResponse(
-        path=filepath,
-        filename=os.path.basename(filepath),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return StreamingResponse(
+        file_obj,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
     )
