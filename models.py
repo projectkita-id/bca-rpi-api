@@ -86,6 +86,34 @@ def get_record(record_id: int):
 
     return record
 
+def get_record_items(record_id: int):
+    db = get_db()
+    cursor = db.cursor(dictionary=True)
+
+    cursor.execute("""
+        SELECT
+            item_id,
+            scanner_1,
+            scanner_1_valid,
+            scanner_2,
+            scanner_2_valid,
+            scanner_3,
+            scanner_3_valid,
+            result,
+            fallback,
+            created_at
+        FROM record_item
+        WHERE record_id = %s
+        ORDER BY id ASC
+    """, (record_id,))
+
+    items = cursor.fetchall()
+
+    cursor.close()
+    db.close()
+    return items
+
+
 def check_tables_exist():
     db = get_db()
     cursor = db.cursor()

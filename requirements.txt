@@ -3,3 +3,4 @@ fastapi
 mysql-connector-python
 uvicorn
 pandas
+openpyxl

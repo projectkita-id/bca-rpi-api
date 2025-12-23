@@ -1,8 +1,10 @@
+import os
 import json
 from schema import StartBatchRequest
-from services import normalize_item, excel_to_json
-from models import create_record, finish_record, get_record
+from fastapi.responses import FileResponse
 from fastapi import FastAPI, HTTPException, UploadFile, File
+from services import normalize_item, excel_to_json, export_record_to_excel
+from models import create_record, finish_record, get_record, get_record_items
 
 app = FastAPI(title="BCA Envelope Sorting API")
 
@@ -58,3 +60,30 @@ async def upload_excel(file: UploadFile = File(...)):
         "items": result["items"],
         "json_file": result["json_file"]
     }
+
+@app.get("/download/{record_id}")
+def download_record(record_id: int):
+    record = get_record(record_id)
+
+    if not record:
+        raise HTTPException(404, "Record not found")
+
+    if record["status"] != "Completed":
+        raise HTTPException(400, "Record not completed yet")
+
+    items = get_record_items(record_id)
+
+    if not items:
+        raise HTTPException(404, "No items found for this record")
+    
+    scanner_used = json.loads(record["scanner_used"])
+    filepath = export_record_to_excel(record_id, items, scanner_used)
+
+    if not filepath:
+        raise HTTPException(500, "Failed to generate Excel")
+
+    return FileResponse(
+        path=filepath,
+        filename=os.path.basename(filepath),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )

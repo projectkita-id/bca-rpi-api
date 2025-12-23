@@ -1,7 +1,10 @@
 import os
 import json
 import pandas 
+from openpyxl import Workbook
+from datetime import datetime
 from fastapi import HTTPException
+from openpyxl.styles import PatternFill
 
 def normalize_item(item: dict, record_id: int, scanner_used: list[int]):
     def get(scanner_key):
@@ -92,3 +95,58 @@ def excel_to_json(file, filename: str):
         raise
     except Exception as e:
         raise HTTPException(500, str(e))
+
+GREEN = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+RED   = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+
+def export_record_to_excel(record_id, items, scanner_used):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Scan Result"
+
+    headers = [
+        "Item ID",
+        "Scanner 1",
+        "Scanner 2",
+        "Scanner 3",
+        "Result",
+        "Scan Time"
+    ]
+    ws.append(headers)
+
+    for row_idx, item in enumerate(items, start=2):
+        ws.append([
+            item["item_id"],
+            item["scanner_1"],
+            item["scanner_2"],
+            item["scanner_3"],
+            item["result"],
+            item["created_at"]
+        ])
+
+        # ===== CONDITIONAL COLORING =====
+        scanner_map = {
+            1: ("scanner_1", 2),
+            2: ("scanner_2", 3),
+            3: ("scanner_3", 4),
+        }
+
+        for scanner_id in scanner_used:
+            key, col = scanner_map[scanner_id]
+            valid_key = f"{key}_valid"
+
+            valid = item.get(valid_key)
+            cell = ws.cell(row=row_idx, column=col)
+
+            if valid is True:
+                cell.fill = GREEN
+            elif valid is False:
+                cell.fill = RED
+            # else → no color
+
+    os.makedirs("exports", exist_ok=True)
+    filename = f"batch_{record_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    path = os.path.join("exports", filename)
+
+    wb.save(path)
+    return path
