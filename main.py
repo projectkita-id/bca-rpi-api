@@ -52,10 +52,12 @@ def finish_batch(record_id: int, items: list[dict]):
 
     return {"status": "completed", "total_items": len(items), "scanner_used": scanner_used}
 
+
 @app.get("/batch/list")
 def list_batches(status: str = None):
     records = get_all_records(status)
     return {"total": len(records), "records": records}
+
 
 @app.get("/batch/{record_id}")
 def get_batch_detail(record_id: int):

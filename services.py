@@ -56,7 +56,6 @@ def normalize_item(item: dict, record_id: int, scanner_used: list[int] | list) -
         "fallback": 1 if item.get("fallback") else 0,
     }
 
-
 def excel_to_json(file):
     try:
         file.seek(0)
