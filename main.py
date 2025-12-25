@@ -92,39 +92,92 @@ def list_batches(status: str = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/batch/{record_id}")
-def get_batch_detail(record_id: int):
-    """Get detailed info about a specific batch"""
-    try:
-        record = get_record(record_id)
-        
-        if not record:
-            raise HTTPException(404, "Record not found")
-        
-        items = get_record_items(record_id)
-        scanner_used = json.loads(record["scanner_used"])
-        
-        # Calculate statistics
-        total_items = len(items)
-        pass_count = 0  # Sementara 0
-        fail_count = 0  # Sementara 0
-        
-        return {
-            "record_id": record_id,
-            "batch_code": record.get("batch_code"),
-            "start_time": record.get("start_time"),
-            "end_time": record.get("end_time"),
-            "status": record.get("status"),
-            "scanner_used": scanner_used,
-            "total_items": total_items,
-            "pass_count": pass_count,
-            "fail_count": fail_count,
-            "items": items
+def get_batch_details(record_id: int):
+    """Get complete batch details with all item data"""
+    
+    # Get record info
+    cursor.execute("""
+        SELECT 
+            record_id, batch_code, start_time, end_time, 
+            status, scanner_used, total_items, pass_count, fail_count
+        FROM records 
+        WHERE record_id = ?
+    """, (record_id,))
+    
+    record = cursor.fetchone()
+    if not record:
+        raise HTTPException(404, "Batch not found")
+    
+    record_dict = dict(zip([
+        "record_id", "batch_code", "start_time", "end_time",
+        "status", "scanner_used", "total_items", "pass_count", "fail_count"
+    ], record))
+    
+    # Parse scanner_used JSON
+    scanner_used = json.loads(record_dict["scanner_used"])
+    
+    # Get ALL item data (not just item_id)
+    cursor.execute("""
+        SELECT 
+            item_id,
+            scanner_1, scanner_1_valid,
+            scanner_2, scanner_2_valid,
+            scanner_3, scanner_3_valid,
+            result, fallback, created_at
+        FROM items 
+        WHERE record_id = ?
+        ORDER BY id ASC
+    """, (record_id,))
+    
+    items_raw = cursor.fetchall()
+    
+    items = []
+    for item_row in items_raw:
+        item_dict = {
+            "item_id": item_row[0],
+            "scanner_1": item_row[1],
+            "scanner_1_valid": bool(item_row[2]) if item_row[2] is not None else None,
+            "scanner_2": item_row[3],
+            "scanner_2_valid": bool(item_row[4]) if item_row[4] is not None else None,
+            "scanner_3": item_row[5],
+            "scanner_3_valid": bool(item_row[6]) if item_row[6] is not None else None,
+            "result": item_row[7],
+            "fallback": bool(item_row[8]) if item_row[8] is not None else False,
+            "created_at": item_row[9]
         }
-    except HTTPException:
-        raise
+        items.append(item_dict)
+    
+    return {
+        **record_dict,
+        "scanner_used": scanner_used,
+        "items": items
+    }
+
+
+@app.get("/download/{record_id}")
+def download_excel(record_id: int):
+    """Download batch as Excel file"""
+    
+    # Get complete batch data
+    batch_data = get_batch_details(record_id)
+    
+    # Generate Excel
+    try:
+        file_obj, filename = export_record_to_excel(
+            record_id=batch_data["record_id"],
+            items=batch_data["items"],
+            scanner_used=batch_data["scanner_used"]
+        )
+        
+        return StreamingResponse(
+            file_obj,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    
     except Exception as e:
-        print(f"❌ Error in get_batch_detail: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"❌ Export error: {str(e)}")
+        raise HTTPException(500, f"Failed to generate Excel: {str(e)}")
 
 @app.post("/upload-file")
 async def upload_excel(file: UploadFile = File(...)):
