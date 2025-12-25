@@ -101,6 +101,7 @@ def check_tables_exist():
     db.commit()
     cursor.close()
     db.close()
+    
 def finish_record(record_id, items): 
     check_tables_exist()
     
@@ -177,7 +178,6 @@ def get_record(record_id: int) -> dict | None:
         cursor.close()
         conn.close()
 
-
 def get_record_items(record_id: int) -> list:
     """
     Get items for a record_id.
@@ -227,7 +227,6 @@ def get_record_items(record_id: int) -> list:
     finally:
         cursor.close()
         conn.close()
-
 
 def get_all_records(status_filter=None) -> list:
     """Get all records for /batch/list"""
