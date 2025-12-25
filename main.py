@@ -27,7 +27,7 @@ app.add_middleware(
 
 @app.get("/")
 def health():
-    return {"status": "ok", "message": "BCA Scanner API is running"}
+    return {"status": "ok", "message": "BCA Scanner API is running", "database": "bca_envelope"}
 
 @app.post("/batch/start")
 def start_batch(payload: StartBatchRequest):
@@ -72,13 +72,10 @@ def finish_batch(record_id: int, items: list[dict]):
 def list_batches(status: str = None):
     """Get list of all batches with statistics"""
     try:
+        print(f"\n🔍 API /batch/list called (status filter: {status})")
         records = get_all_records(status)
         
-        # Ensure counts are integers
-        for record in records:
-            record['total_items'] = record.get('total_items', 0) or 0
-            record['pass_count'] = record.get('pass_count', 0) or 0
-            record['fail_count'] = record.get('fail_count', 0) or 0
+        print(f"✅ Returning {len(records)} records")
         
         return {
             "total": len(records),
@@ -86,6 +83,8 @@ def list_batches(status: str = None):
         }
     except Exception as e:
         print(f"❌ Error in list_batches: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/batch/{record_id}")
@@ -164,14 +163,6 @@ def download_record(record_id: int):
 @app.get("/export", response_class=HTMLResponse)
 async def export_page():
     """Serve the batch export HTML page"""
-    html_file = "export.html"
-    
-    # If external HTML file exists, use it
-    if os.path.exists(html_file):
-        with open(html_file, 'r', encoding='utf-8') as f:
-            return HTMLResponse(content=f.read())
-    
-    # Otherwise, return embedded HTML
     html_content = """
 <!DOCTYPE html>
 <html lang="id">
@@ -576,7 +567,13 @@ async def export_page():
             card.dataset.status = batch.status;
             card.dataset.batchCode = (batch.batch_code || '').toLowerCase();
 
-            const scannerUsed = JSON.parse(batch.scanner_used || '[]');
+            let scannerUsed = [];
+            try {
+                scannerUsed = JSON.parse(batch.scanner_used || '[]');
+            } catch(e) {
+                console.error('Error parsing scanner_used:', e);
+            }
+            
             const statusClass = batch.status === 'Completed' ? 'status-completed' : 'status-running';
 
             card.innerHTML = `
@@ -600,7 +597,7 @@ async def export_page():
                     <div class="info-row">
                         <span class="info-label">Scanners:</span>
                         <div class="scanner-badges">
-                            ${scannerUsed.map(s => `<span class="scanner-badge">S${s}</span>`).join('')}
+                            ${scannerUsed.map(s => `<span class="scanner-badge">S${s}</span>`).join('') || '-'}
                         </div>
                     </div>
                 </div>
@@ -675,15 +672,22 @@ async def export_page():
 
         async function loadBatches() {
             try {
+                console.log('🔍 Loading batches from:', `${API_BASE}/batch/list`);
+                
                 loadingBox.style.display = 'block';
                 batchGrid.style.display = 'none';
                 emptyState.style.display = 'none';
 
                 const response = await fetch(`${API_BASE}/batch/list`);
+                console.log('📡 Response status:', response.status);
+                
                 if (!response.ok) throw new Error('Failed to load batches');
 
                 const data = await response.json();
+                console.log('✅ Data received:', data);
+                
                 allBatches = data.records || [];
+                console.log(`📊 Total batches: ${allBatches.length}`);
 
                 batchGrid.innerHTML = '';
 
@@ -700,7 +704,7 @@ async def export_page():
                 loadingBox.style.display = 'none';
 
             } catch (error) {
-                console.error('Error loading batches:', error);
+                console.error('💥 Error loading batches:', error);
                 loadingBox.innerHTML = `<p style="color: #d32f2f;">❌ Error: ${error.message}</p>`;
             }
         }
