@@ -1,22 +1,20 @@
-import os
 import json
-from datetime import datetime
-from schema import StartBatchRequest
-from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, HTMLResponse
+
+from schema import StartBatchRequest
 from services import normalize_item, excel_to_json, export_record_to_excel
 from models import (
-    create_record, 
-    finish_record, 
-    get_record, 
+    create_record,
+    finish_record,
+    get_record,
     get_record_items,
-    get_all_records
+    get_all_records,
 )
 
 app = FastAPI(title="BCA Envelope Sorting API")
 
-# ========== CORS MIDDLEWARE ==========
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,124 +23,81 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/")
 def health():
-    return {
-        "status": "ok", 
-        "message": "BCA Scanner API is running", 
-        "database": "bca_envelope"
-    }
+    return {"status": "ok", "message": "BCA Scanner API is running", "database": "bca_envelope"}
+
 
 @app.post("/batch/start")
 def start_batch(payload: StartBatchRequest):
-    """Start a new batch scanning session"""
     record_id = create_record(payload.scanner_used, payload.batch_code)
-    return {
-        "record_id": record_id,
-        "scanner_used": payload.scanner_used,
-        "batch_code": payload.batch_code
-    }
+    return {"record_id": record_id, "scanner_used": payload.scanner_used, "batch_code": payload.batch_code}
+
 
 @app.post("/batch/{record_id}/finish")
 def finish_batch(record_id: int, items: list[dict]):
-    """Finish batch and save all items"""
-    records = get_record(record_id)
-
-    if not records:
+    record = get_record(record_id)
+    if not record:
         raise HTTPException(404, "Record not found")
-
     if not items:
         raise HTTPException(400, detail="Item cannot be empty")
-
-    if records["status"] != "Running":
+    if record["status"] != "Running":
         raise HTTPException(400, "Batch already finished")
 
-    scanner_used = json.loads(records["scanner_used"])
+    scanner_used = json.loads(record["scanner_used"])
 
-    normalized = [
-        normalize_item(item, record_id, scanner_used)
-        for item in items
-    ]
-
+    normalized = [normalize_item(item, record_id, scanner_used) for item in items]
     finish_record(record_id, normalized)
 
-    return {
-        "status": "completed",
-        "total_items": len(items),
-        "scanner_used": scanner_used
-    }
+    return {"status": "completed", "total_items": len(items), "scanner_used": scanner_used}
+
 
 @app.get("/batch/list")
 def list_batches(status: str = None):
-    """Get list of all batches with statistics"""
-    try:
-        print(f"\n🔍 API /batch/list called (status filter: {status})")
-        records = get_all_records(status)
-        
-        print(f"✅ API returning {len(records)} records")
-        
-        return {
-            "total": len(records),
-            "records": records
-        }
-    except Exception as e:
-        print(f"❌ Error in list_batches: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    records = get_all_records(status)
+    return {"total": len(records), "records": records}
+
 
 @app.get("/batch/{record_id}")
 def get_batch_detail(record_id: int):
-    """Get detailed info about a specific batch"""
-    try:
-        record = get_record(record_id)
-        
-        if not record:
-            raise HTTPException(404, "Record not found")
-        
-        items = get_record_items(record_id)
-        scanner_used = json.loads(record["scanner_used"])
-        
-        # Calculate statistics
-        total_items = len(items)
-        pass_count = 0  # Sementara 0
-        fail_count = 0  # Sementara 0
-        
-        return {
-            "record_id": record_id,
-            "batch_code": record.get("batch_code"),
-            "start_time": record.get("start_time"),
-            "end_time": record.get("end_time"),
-            "status": record.get("status"),
-            "scanner_used": scanner_used,
-            "total_items": total_items,
-            "pass_count": pass_count,
-            "fail_count": fail_count,
-            "items": items
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ Error in get_batch_detail: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/upload-file")
-async def upload_excel(file: UploadFile = File(...)):
-    """Upload Excel file and convert to JSON"""
-    if not file.filename.endswith(".xlsx"):
-        raise HTTPException(400, "Only .xlsx files are allowed")
-
-    result = excel_to_json(file.file)
-    return result
-
-@app.get("/download/{record_id}")
-def download_record(record_id: int):
-    """Download Excel file for a specific record"""
     record = get_record(record_id)
-
     if not record:
         raise HTTPException(404, "Record not found")
 
+    items = get_record_items(record_id)
+    scanner_used = json.loads(record["scanner_used"])
+
+    # statistik dari items (result sudah ada)
+    pass_count = sum(1 for it in items if it.get("result") == "Pass")
+    fail_count = sum(1 for it in items if it.get("result") == "Fail")
+
+    return {
+        "record_id": record_id,
+        "batch_code": record.get("batch_code"),
+        "start_time": record.get("start_time"),
+        "end_time": record.get("end_time"),
+        "status": record.get("status"),
+        "scanner_used": scanner_used,
+        "total_items": len(items),
+        "pass_count": pass_count,
+        "fail_count": fail_count,
+        "items": items,
+    }
+
+
+@app.post("/upload-file")
+async def upload_excel(file: UploadFile = File(...)):
+    if not file.filename.endswith(".xlsx"):
+        raise HTTPException(400, "Only .xlsx files are allowed")
+    return excel_to_json(file.file)
+
+
+@app.get("/download/{record_id}")
+def download_record(record_id: int):
+    record = get_record(record_id)
+    if not record:
+        raise HTTPException(404, "Record not found")
     if record["status"] != "Completed":
         raise HTTPException(400, "Record not completed yet")
 
@@ -151,58 +106,22 @@ def download_record(record_id: int):
         raise HTTPException(404, "No items found for this record")
 
     scanner_used = json.loads(record["scanner_used"])
-
-    file_obj, filename = export_record_to_excel(
-        record_id, items, scanner_used
-    )
+    file_obj, filename = export_record_to_excel(record_id, items, scanner_used)
 
     return StreamingResponse(
         file_obj,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
-        }
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
-@app.get("/debug/test-db")
-def test_database():
-    """Debug endpoint to test database connection"""
-    import mysql.connector
-    
-    try:
-        conn = mysql.connector.connect(
-            host='localhost',
-            user='bca_user',
-            password='bca123456',
-            database='bca_envelope'
-        )
-        
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT COUNT(*) as count FROM records")
-        result = cursor.fetchone()
-        
-        cursor.execute("SELECT * FROM records LIMIT 3")
-        samples = cursor.fetchall()
-        
-        # Convert datetime to string for JSON
-        for sample in samples:
-            if sample.get('start_time'):
-                sample['start_time'] = sample['start_time'].isoformat()
-            if sample.get('end_time'):
-                sample['end_time'] = sample['end_time'].isoformat()
-            if sample.get('created_at'):
-                sample['created_at'] = sample['created_at'].isoformat()
-        
-        cursor.close()
-        conn.close()
-        
-        return {
-            "status": "connected",
-            "total_records": result['count'],
-            "sample_records": samples
-        }
-    except Exception as e:
-        return {"error": str(e)}
+
+# HTML export page Anda biarkan seperti sebelumnya
+@app.get("/export", response_class=HTMLResponse)
+async def export_page():
+    html_content = """<html><body>export page</body></html>"""
+    return HTMLResponse(content=html_content)
+
+
 
 @app.get("/export", response_class=HTMLResponse)
 async def export_page():
