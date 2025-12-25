@@ -77,27 +77,37 @@ def finish_record(record_id: int, items: list):
         """, (end_time, total_items, record_id))
         
         # Insert items ke record_item
+# Insert items ke record_item (SESUIKAN DENGAN DB ANDA)
         for item in items:
-            timestamp = datetime.fromisoformat(item.get("timestamp")) if item.get("timestamp") else datetime.now()
-            
             cursor.execute("""
                 INSERT INTO record_item (
-                    record_id, item_id, timestamp,
-                    scanner_1_value, scanner_1_valid,
-                    scanner_2_value, scanner_2_valid,
-                    scanner_3_value, scanner_3_valid
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    record_id, item_id,
+                    scanner_1, scanner_1_valid,
+                    scanner_2, scanner_2_valid,
+                    scanner_3, scanner_3_valid,
+                    result, fallback, created_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
             """, (
                 record_id,
                 item.get("item_id"),
-                timestamp,
-                item.get("scanner_1_value"),
-                1 if item.get("scanner_1_valid") else 0,
-                item.get("scanner_2_value"),
-                1 if item.get("scanner_2_valid") else 0,
-                item.get("scanner_3_value"),
-                1 if item.get("scanner_3_valid") else 0
+
+                # scanner_1
+                (item.get("scanner_1") or {}).get("value") if isinstance(item.get("scanner_1"), dict) else item.get("scanner_1"),
+                1 if ((item.get("scanner_1") or {}).get("valid") if isinstance(item.get("scanner_1"), dict) else item.get("scanner_1_valid")) else 0,
+
+                # scanner_2
+                (item.get("scanner_2") or {}).get("value") if isinstance(item.get("scanner_2"), dict) else item.get("scanner_2"),
+                1 if ((item.get("scanner_2") or {}).get("valid") if isinstance(item.get("scanner_2"), dict) else item.get("scanner_2_valid")) else 0,
+
+                # scanner_3
+                (item.get("scanner_3") or {}).get("value") if isinstance(item.get("scanner_3"), dict) else item.get("scanner_3"),
+                1 if ((item.get("scanner_3") or {}).get("valid") if isinstance(item.get("scanner_3"), dict) else item.get("scanner_3_valid")) else 0,
+
+                # result & fallback (kalau belum ada, auto dihitung di bawah)
+                item.get("result", "Unknown"),
+                1 if item.get("fallback") else 0
             ))
+
         
         conn.commit()
         print(f"Record finished: ID={record_id}, Items={len(items)}")
@@ -147,54 +157,47 @@ def get_record(record_id: int) -> dict:
 
 
 def get_record_items(record_id: int) -> list:
-    """Get all items for a specific record"""
+    """Get all items for a specific record (complete fields)"""
     conn = get_db_connection()
     if not conn:
         return []
-    
+
     cursor = conn.cursor(dictionary=True)
-    
+
     try:
         cursor.execute("""
-            SELECT * FROM record_item 
-            WHERE record_id = %s 
+            SELECT
+                id, record_id, item_id,
+                scanner_1, scanner_1_valid,
+                scanner_2, scanner_2_valid,
+                scanner_3, scanner_3_valid,
+                result, fallback, created_at
+            FROM record_item
+            WHERE record_id = %s
             ORDER BY id ASC
         """, (record_id,))
-        
-        rows = cursor.fetchall()
-        
+
+        rows = cursor.fetchall() or []
         items = []
+
         for row in rows:
-            item = {
+            items.append({
                 "item_id": row.get("item_id"),
-                "timestamp": row["timestamp"].isoformat() if row.get("timestamp") else None
-            }
-            
-            # Scanner 1
-            if row.get("scanner_1_value"):
-                item["scanner_1"] = {
-                    "value": row["scanner_1_value"],
-                    "valid": bool(row.get("scanner_1_valid"))
-                }
-            
-            # Scanner 2
-            if row.get("scanner_2_value"):
-                item["scanner_2"] = {
-                    "value": row["scanner_2_value"],
-                    "valid": bool(row.get("scanner_2_valid"))
-                }
-            
-            # Scanner 3
-            if row.get("scanner_3_value"):
-                item["scanner_3"] = {
-                    "value": row["scanner_3_value"],
-                    "valid": bool(row.get("scanner_3_valid"))
-                }
-            
-            items.append(item)
-        
+
+                # Format yang enak untuk FE + export
+                "scanner_1": {"value": row.get("scanner_1"), "valid": (bool(row["scanner_1_valid"]) if row.get("scanner_1_valid") is not None else None)},
+                "scanner_2": {"value": row.get("scanner_2"), "valid": (bool(row["scanner_2_valid"]) if row.get("scanner_2_valid") is not None else None)},
+                "scanner_3": {"value": row.get("scanner_3"), "valid": (bool(row["scanner_3_valid"]) if row.get("scanner_3_valid") is not None else None)},
+
+                "result": row.get("result"),
+                "fallback": bool(row["fallback"]) if row.get("fallback") is not None else False,
+
+                # timestamp jangan null: fallback ke created_at
+                "timestamp": row["created_at"].isoformat() if row.get("created_at") else datetime.now().isoformat()
+            })
+
         return items
-        
+
     except Error as e:
         print(f"Error getting items: {e}")
         return []
