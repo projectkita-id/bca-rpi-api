@@ -3,12 +3,12 @@ from mysql.connector import Error
 import json
 from datetime import datetime
 
-# MySQL Configuration - SESUAIKAN DENGAN SETTING ANDA
+# MySQL Configuration
 DB_CONFIG = {
-    'host': '127.0.0.1',
-    'user': 'root',
-    'password': '',  # Ganti jika ada password
-    'database': 'bca_envelope',  # NAMA DATABASE ANDA
+    'host': 'localhost',
+    'user': 'bca_user',
+    'password': 'bca123456',
+    'database': 'bca_envelope',
     'port': 3306
 }
 
@@ -76,7 +76,7 @@ def finish_record(record_id: int, items: list):
             WHERE id = %s
         """, (end_time, total_items, record_id))
         
-        # Insert items
+        # Insert items - SESUAIKAN dengan kolom yang ada di tabel Anda
         for item in items:
             timestamp = datetime.fromisoformat(item.get("timestamp")) if item.get("timestamp") else datetime.now()
             
@@ -85,9 +85,8 @@ def finish_record(record_id: int, items: list):
                     record_id, item_id, timestamp,
                     scanner_1_value, scanner_1_valid,
                     scanner_2_value, scanner_2_valid,
-                    scanner_3_value, scanner_3_valid,
-                    validation_result
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    scanner_3_value, scanner_3_valid
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 record_id,
                 item.get("item_id"),
@@ -97,8 +96,7 @@ def finish_record(record_id: int, items: list):
                 item.get("scanner_2_value"),
                 1 if item.get("scanner_2_valid") else 0,
                 item.get("scanner_3_value"),
-                1 if item.get("scanner_3_valid") else 0,
-                item.get("validation_result")
+                1 if item.get("scanner_3_valid") else 0
             ))
         
         conn.commit()
@@ -134,9 +132,9 @@ def get_record(record_id: int) -> dict:
             else:
                 row['end_time'] = None
             
-            # Ensure scanner_used is string (JSON format)
+            # Ensure scanner_used is string
             if isinstance(row.get('scanner_used'), str):
-                pass  # Already string
+                pass
             else:
                 row['scanner_used'] = json.dumps(row.get('scanner_used', []))
         
@@ -159,17 +157,9 @@ def get_record_items(record_id: int) -> list:
     cursor = conn.cursor(dictionary=True)
     
     try:
+        # Ambil semua kolom yang ada, tanpa validation_result
         cursor.execute("""
-            SELECT 
-                item_id,
-                timestamp,
-                scanner_1_value,
-                scanner_1_valid,
-                scanner_2_value,
-                scanner_2_valid,
-                scanner_3_value,
-                scanner_3_valid,
-                validation_result
+            SELECT *
             FROM record_item
             WHERE record_id = %s
             ORDER BY id ASC
@@ -180,9 +170,8 @@ def get_record_items(record_id: int) -> list:
         items = []
         for row in rows:
             item = {
-                "item_id": row["item_id"],
+                "item_id": row.get("item_id"),
                 "timestamp": row["timestamp"].isoformat() if row.get("timestamp") else None,
-                "validation_result": row.get("validation_result")
             }
             
             # Scanner 1
@@ -219,7 +208,7 @@ def get_record_items(record_id: int) -> list:
 
 
 def get_all_records(status_filter=None) -> list:
-    """Get all records from database with statistics"""
+    """Get all records from database"""
     conn = get_db_connection()
     if not conn:
         print("❌ No database connection")
@@ -230,7 +219,7 @@ def get_all_records(status_filter=None) -> list:
     try:
         print(f"🔍 Fetching records (filter: {status_filter})")
         
-        # Simple query without JOIN
+        # Query records
         if status_filter:
             query = "SELECT * FROM records WHERE status = %s ORDER BY id DESC"
             cursor.execute(query, (status_filter,))
@@ -242,13 +231,12 @@ def get_all_records(status_filter=None) -> list:
         print(f"✅ Query returned {len(rows)} rows")
         
         if not rows:
-            print("⚠️ No rows returned from database")
             return []
         
         records = []
         for row in rows:
             try:
-                # Get items count only (tanpa validation_result dulu)
+                # Get item count
                 cursor2 = conn.cursor(dictionary=True)
                 cursor2.execute("""
                     SELECT COUNT(*) as item_count
@@ -259,17 +247,17 @@ def get_all_records(status_filter=None) -> list:
                 stats = cursor2.fetchone()
                 cursor2.close()
                 
-                # Build record dict
+                # Build record
                 record = {
                     'id': row['id'],
                     'batch_code': row.get('batch_code', ''),
                     'status': row.get('status', ''),
                     'total_items': int(row.get('total_items', 0) or stats.get('item_count', 0) or 0),
-                    'pass_count': 0,  # Sementara 0 dulu
-                    'fail_count': 0   # Sementara 0 dulu
+                    'pass_count': 0,
+                    'fail_count': 0
                 }
                 
-                # Handle datetime fields
+                # DateTime
                 if row.get('start_time'):
                     record['start_time'] = row['start_time'].isoformat()
                 else:
@@ -280,7 +268,7 @@ def get_all_records(status_filter=None) -> list:
                 else:
                     record['end_time'] = None
                 
-                # Handle scanner_used
+                # Scanner used
                 scanner_used = row.get('scanner_used', '[]')
                 if isinstance(scanner_used, str):
                     record['scanner_used'] = scanner_used
@@ -288,22 +276,21 @@ def get_all_records(status_filter=None) -> list:
                     record['scanner_used'] = json.dumps(scanner_used)
                 
                 records.append(record)
-                print(f"  ✓ Record #{record['id']}: {record['batch_code']} ({record['status']}) - {record['total_items']} items")
                 
             except Exception as row_error:
                 print(f"❌ Error processing row {row.get('id')}: {row_error}")
                 continue
         
-        print(f"🎉 Successfully processed {len(records)} records")
+        print(f"✅ Returning {len(records)} records")
         return records
         
     except Error as e:
-        print(f"❌ MySQL Error in get_all_records: {e}")
+        print(f"❌ MySQL Error: {e}")
         import traceback
         traceback.print_exc()
         return []
     except Exception as e:
-        print(f"❌ General Error in get_all_records: {e}")
+        print(f"❌ Error: {e}")
         import traceback
         traceback.print_exc()
         return []
@@ -312,7 +299,7 @@ def get_all_records(status_filter=None) -> list:
         conn.close()
 
 
-# Test connection on import
+# Test connection
 try:
     test_conn = get_db_connection()
     if test_conn:

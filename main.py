@@ -27,7 +27,11 @@ app.add_middleware(
 
 @app.get("/")
 def health():
-    return {"status": "ok", "message": "BCA Scanner API is running", "database": "bca_envelope"}
+    return {
+        "status": "ok", 
+        "message": "BCA Scanner API is running", 
+        "database": "bca_envelope"
+    }
 
 @app.post("/batch/start")
 def start_batch(payload: StartBatchRequest):
@@ -75,7 +79,7 @@ def list_batches(status: str = None):
         print(f"\n🔍 API /batch/list called (status filter: {status})")
         records = get_all_records(status)
         
-        print(f"✅ Returning {len(records)} records")
+        print(f"✅ API returning {len(records)} records")
         
         return {
             "total": len(records),
@@ -101,8 +105,8 @@ def get_batch_detail(record_id: int):
         
         # Calculate statistics
         total_items = len(items)
-        pass_count = sum(1 for item in items if item.get("validation_result") == "PASS")
-        fail_count = total_items - pass_count
+        pass_count = 0  # Sementara 0
+        fail_count = 0  # Sementara 0
         
         return {
             "record_id": record_id,
@@ -159,6 +163,46 @@ def download_record(record_id: int):
             "Content-Disposition": f'attachment; filename="{filename}"'
         }
     )
+
+@app.get("/debug/test-db")
+def test_database():
+    """Debug endpoint to test database connection"""
+    import mysql.connector
+    
+    try:
+        conn = mysql.connector.connect(
+            host='localhost',
+            user='bca_user',
+            password='bca123456',
+            database='bca_envelope'
+        )
+        
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT COUNT(*) as count FROM records")
+        result = cursor.fetchone()
+        
+        cursor.execute("SELECT * FROM records LIMIT 3")
+        samples = cursor.fetchall()
+        
+        # Convert datetime to string for JSON
+        for sample in samples:
+            if sample.get('start_time'):
+                sample['start_time'] = sample['start_time'].isoformat()
+            if sample.get('end_time'):
+                sample['end_time'] = sample['end_time'].isoformat()
+            if sample.get('created_at'):
+                sample['created_at'] = sample['created_at'].isoformat()
+        
+        cursor.close()
+        conn.close()
+        
+        return {
+            "status": "connected",
+            "total_records": result['count'],
+            "sample_records": samples
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/export", response_class=HTMLResponse)
 async def export_page():
@@ -764,36 +808,6 @@ async def export_page():
     """
     return HTMLResponse(content=html_content)
 
-@app.get("/debug/test-db")
-def test_database():
-    """Debug endpoint to test database connection"""
-    import mysql.connector
-    
-    try:
-        conn = mysql.connector.connect(
-            host='localhost',
-            user='bca_user',
-            password='bca123456',
-            database='bca_envelope'
-        )
-        
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT COUNT(*) as count FROM records")
-        result = cursor.fetchone()
-        
-        cursor.execute("SELECT * FROM records LIMIT 3")
-        samples = cursor.fetchall()
-        
-        cursor.close()
-        conn.close()
-        
-        return {
-            "status": "connected",
-            "total_records": result['count'],
-            "sample_records": samples
-        }
-    except Exception as e:
-        return {"error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
