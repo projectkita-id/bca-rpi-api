@@ -764,6 +764,36 @@ async def export_page():
     """
     return HTMLResponse(content=html_content)
 
+@app.get("/debug/test-db")
+def test_database():
+    """Debug endpoint to test database connection"""
+    import mysql.connector
+    
+    try:
+        conn = mysql.connector.connect(
+            host='localhost',
+            user='bca_user',
+            password='bca123456',
+            database='bca_envelope'
+        )
+        
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT COUNT(*) as count FROM records")
+        result = cursor.fetchone()
+        
+        cursor.execute("SELECT * FROM records LIMIT 3")
+        samples = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return {
+            "status": "connected",
+            "total_records": result['count'],
+            "sample_records": samples
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
