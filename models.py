@@ -228,112 +228,9 @@ def get_all_records(status_filter=None) -> list:
     cursor = conn.cursor(dictionary=True)
     
     try:
-        print(f"🔍 Fetching records from bca_envelope database (filter: {status_filter})")
-        
-        if status_filter:
-            query = """
-                SELECT 
-                    r.id,
-                    r.batch_code,
-                    r.start_time,
-                    r.end_time,
-                    r.status,
-                    r.scanner_used,
-                    r.total_items,
-                    COUNT(i.id) as item_count,
-                    SUM(CASE WHEN i.validation_result = 'PASS' THEN 1 ELSE 0 END) as pass_count,
-                    SUM(CASE WHEN i.validation_result = 'FAIL' THEN 1 ELSE 0 END) as fail_count
-                FROM records r
-                LEFT JOIN record_item i ON r.id = i.record_id
-                WHERE r.status = %s
-                GROUP BY r.id, r.batch_code, r.start_time, r.end_time, r.status, r.scanner_used, r.total_items
-                ORDER BY r.id DESC
-            """
-            cursor.execute(query, (status_filter,))
-        else:
-            query = """
-                SELECT 
-                    r.id,
-                    r.batch_code,
-                    r.start_time,
-                    r.end_time,
-                    r.status,
-                    r.scanner_used,
-                    r.total_items,
-                    COUNT(i.id) as item_count,
-                    SUM(CASE WHEN i.validation_result = 'PASS' THEN 1 ELSE 0 END) as pass_count,
-                    SUM(CASE WHEN i.validation_result = 'FAIL' THEN 1 ELSE 0 END) as fail_count
-                FROM records r
-                LEFT JOIN record_item i ON r.id = i.record_id
-                GROUP BY r.id, r.batch_code, r.start_time, r.end_time, r.status, r.scanner_used, r.total_items
-                ORDER BY r.id DESC
-            """
-            cursor.execute(query)
-        
-        rows = cursor.fetchall()
-        print(f"✅ Found {len(rows)} records")
-        
-        records = []
-        for row in rows:
-            record = {}
-            
-            # Basic fields
-            record['id'] = row['id']
-            record['batch_code'] = row['batch_code']
-            record['status'] = row['status']
-            
-            # DateTime conversion
-            if row.get('start_time'):
-                record['start_time'] = row['start_time'].isoformat()
-            else:
-                record['start_time'] = None
-                
-            if row.get('end_time'):
-                record['end_time'] = row['end_time'].isoformat()
-            else:
-                record['end_time'] = None
-            
-            # Scanner used - ensure it's a string
-            scanner_used = row.get('scanner_used')
-            if isinstance(scanner_used, str):
-                record['scanner_used'] = scanner_used
-            elif isinstance(scanner_used, (list, dict)):
-                record['scanner_used'] = json.dumps(scanner_used)
-            else:
-                record['scanner_used'] = '[]'
-            
-            # Statistics
-            record['total_items'] = int(row.get('total_items') or row.get('item_count') or 0)
-            record['pass_count'] = int(row.get('pass_count') or 0)
-            record['fail_count'] = int(row.get('fail_count') or 0)
-            
-            records.append(record)
-            
-            print(f"  - Record #{record['id']}: {record['batch_code']} ({record['status']}) - {record['total_items']} items")
-        
-        return records
-        
-    except Error as e:
-        print(f"❌ Error get_all_records: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
-    finally:
-        cursor.close()
-        conn.close()
-def get_all_records(status_filter=None) -> list:
-    """Get all records from database with statistics"""
-    conn = get_db_connection()
-    if not conn:
-        print("❌ No database connection")
-        return []
-    
-    cursor = conn.cursor(dictionary=True)
-    
-    try:
         print(f"🔍 Fetching records (filter: {status_filter})")
         
-        # Simple query without JOIN first
+        # Simple query without JOIN
         if status_filter:
             query = "SELECT * FROM records WHERE status = %s ORDER BY id DESC"
             cursor.execute(query, (status_filter,))
@@ -351,13 +248,10 @@ def get_all_records(status_filter=None) -> list:
         records = []
         for row in rows:
             try:
-                # Get items statistics for this record
+                # Get items count only (tanpa validation_result dulu)
                 cursor2 = conn.cursor(dictionary=True)
                 cursor2.execute("""
-                    SELECT 
-                        COUNT(*) as item_count,
-                        SUM(CASE WHEN validation_result = 'PASS' THEN 1 ELSE 0 END) as pass_count,
-                        SUM(CASE WHEN validation_result = 'FAIL' THEN 1 ELSE 0 END) as fail_count
+                    SELECT COUNT(*) as item_count
                     FROM record_item
                     WHERE record_id = %s
                 """, (row['id'],))
@@ -371,8 +265,8 @@ def get_all_records(status_filter=None) -> list:
                     'batch_code': row.get('batch_code', ''),
                     'status': row.get('status', ''),
                     'total_items': int(row.get('total_items', 0) or stats.get('item_count', 0) or 0),
-                    'pass_count': int(stats.get('pass_count') or 0),
-                    'fail_count': int(stats.get('fail_count') or 0)
+                    'pass_count': 0,  # Sementara 0 dulu
+                    'fail_count': 0   # Sementara 0 dulu
                 }
                 
                 # Handle datetime fields
