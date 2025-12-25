@@ -3,7 +3,7 @@ from mysql.connector import Error
 import json
 from datetime import datetime
 
-from db2 import get_db
+# from db2 import get_db
 
 DB_CONFIG = {
     "host": "localhost",
@@ -12,7 +12,6 @@ DB_CONFIG = {
     "database": "bca_envelope",
     "port": 3306,
 }
-
 
 def get_db_connection():
     """Create MySQL database connection"""
@@ -57,9 +56,8 @@ def create_record(scanner_used: list, batch_code: str) -> int:
         cursor.close()
         conn.close()
 
-
 def check_tables_exist():
-    db = get_db()
+    db = get_db_connection()
     cursor = db.cursor()
 
     # records table
@@ -106,7 +104,7 @@ def check_tables_exist():
 def finish_record(record_id, items): 
     check_tables_exist()
     
-    db = get_db()
+    db = get_db_connection()
     cursor = db.cursor()
 
     for item in items:
