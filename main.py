@@ -442,6 +442,67 @@ async def export_page():
             padding: 40px;
             color: #1454fb;
         }
+.import-section {
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 2px dashed #1454fb;
+  border-radius: 12px;
+  background: #f8f9ff;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.import-title {
+  font-weight: 800;
+  color: #1454fb;
+  font-size: 16px;
+}
+
+.import-desc {
+  color: #0d3ea8;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.import-right {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.btn-import {
+  background: #1454fb;
+  color: white;
+  padding: 12px 18px;
+  border: none;
+  border-radius: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.btn-import:hover:not(:disabled) {
+  background: #0d3ea8;
+}
+
+.btn-import:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.import-result {
+  margin-bottom: 20px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #1a1a2e;
+  background: #e8ecff;
+  border: 1px solid #c7d2ff;
+  white-space: pre-wrap;
+}
 
         .spinner {
             border: 4px solid #f3f3f3;
@@ -507,6 +568,19 @@ async def export_page():
                     <input type="text" id="searchInput" placeholder="🔍 Cari batch code atau ID...">
                 </div>
             </div>
+<div class="import-section">
+  <div class="import-left">
+    <div class="import-title">Import Excel</div>
+    <div class="import-desc">Upload file .xlsx untuk diproses oleh API</div>
+  </div>
+
+  <div class="import-right">
+    <input type="file" id="importFile" accept=".xlsx" />
+    <button class="btn-import" id="importBtn">Upload</button>
+  </div>
+</div>
+
+<div id="importResult" class="import-result" style="display:none;"></div>
 
             <div id="loadingBox" class="loading">
                 <div class="spinner"></div>
@@ -535,6 +609,9 @@ async def export_page():
 
     <script>
         const API_BASE = window.location.origin;
+const importFile = document.getElementById('importFile');
+const importBtn = document.getElementById('importBtn');
+const importResult = document.getElementById('importResult');
 
         let allBatches = [];
         let selectedBatchId = null;
@@ -669,6 +746,57 @@ async def export_page():
 
             emptyState.style.display = visibleCount === 0 ? 'block' : 'none';
         }
+importBtn.addEventListener('click', async () => {
+  try {
+    if (!importFile.files || importFile.files.length === 0) {
+      alert('Pilih file .xlsx dulu');
+      return;
+    }
+
+    const f = importFile.files[0];
+    if (!f.name.toLowerCase().endsWith('.xlsx')) {
+      alert('File harus .xlsx');
+      return;
+    }
+
+    importBtn.disabled = true;
+    importBtn.textContent = 'Uploading...';
+
+    const form = new FormData();
+    form.append('file', f);
+
+    // lebih aman pakai API_BASE, tapi kalau mau hardcode silakan ganti:
+    // const url = "http://192.168.1.29:8000/upload-file";
+    const url = `${API_BASE}/upload-file`;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      body: form
+    });
+
+    const text = await res.text();
+    importResult.style.display = 'block';
+
+    if (!res.ok) {
+      importResult.textContent = `Upload gagal (${res.status}):\n${text}`;
+      return;
+    }
+
+    // coba parse json
+    try {
+      const json = JSON.parse(text);
+      importResult.textContent = `Upload sukses:\n${JSON.stringify(json, null, 2)}`;
+    } catch (e) {
+      importResult.textContent = `Upload sukses:\n${text}`;
+    }
+
+  } catch (err) {
+    alert('Error upload: ' + err.message);
+  } finally {
+    importBtn.disabled = false;
+    importBtn.textContent = 'Upload';
+  }
+});
 
         async function loadBatches() {
             try {
@@ -686,22 +814,30 @@ async def export_page():
                 const data = await response.json();
                 console.log('✅ Data received:', data);
 
-                console.log(`📊 Total batches: ${allBatches.length}`);
+allBatches = data.records || [];
 
-                batchGrid.innerHTML = '';
+// urutkan ASC biar 37->1, 38->2, 39->3
+allBatches.sort(function(a, b){ return a.id - b.id; });
 
-                if (allBatches.length === 0) {
-                    emptyState.style.display = 'block';
-                } else {
-                    allBatches.forEach((batch,idx) => {
-                        displayMap[batch.id] = idx + 1; // <--- TAMBAHKAN INI
-                        const card = createBatchCard(batch,idx +1);
-                        batchGrid.appendChild(card);
-                    });
-                    batchGrid.style.display = 'grid';
-                }
+console.log(`?? Total batches: ${allBatches.length}`);
 
-                loadingBox.style.display = 'none';
+batchGrid.innerHTML = '';
+displayMap = {};  // reset mapping
+
+if (allBatches.length === 0) {
+    emptyState.style.display = 'block';
+    batchGrid.style.display = 'none';
+} else {
+    allBatches.forEach(function(batch, idx){
+        displayMap[batch.id] = idx + 1;
+        const card = createBatchCard(batch, idx + 1);
+        batchGrid.appendChild(card);
+    });
+    batchGrid.style.display = 'grid';
+    emptyState.style.display = 'none';
+}
+
+loadingBox.style.display = 'none';
 
             } catch (error) {
                 console.error('💥 Error loading batches:', error);
