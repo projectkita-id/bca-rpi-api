@@ -3,11 +3,18 @@ import json
 from schema import StartBatchRequest
 from fastapi.responses import StreamingResponse
 from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware  # ← Tambahkan ini
 from services import normalize_item, excel_to_json, export_record_to_excel
 from models import create_record, finish_record, get_record, get_record_items
 
 app = FastAPI(title="BCA Envelope Sorting API")
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Izinkan semua origin (untuk development)
+    allow_credentials=True,
+    allow_methods=["*"],  # Izinkan semua HTTP methods
+    allow_headers=["*"],  # Izinkan semua headers
+)
 @app.get("/")
 def health():
     return {"status": "ok"}
