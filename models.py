@@ -321,6 +321,101 @@ def get_all_records(status_filter=None) -> list:
     finally:
         cursor.close()
         conn.close()
+def get_all_records(status_filter=None) -> list:
+    """Get all records from database with statistics"""
+    conn = get_db_connection()
+    if not conn:
+        print("❌ No database connection")
+        return []
+    
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        print(f"🔍 Fetching records (filter: {status_filter})")
+        
+        # Simple query without JOIN first
+        if status_filter:
+            query = "SELECT * FROM records WHERE status = %s ORDER BY id DESC"
+            cursor.execute(query, (status_filter,))
+        else:
+            query = "SELECT * FROM records ORDER BY id DESC"
+            cursor.execute(query)
+        
+        rows = cursor.fetchall()
+        print(f"✅ Query returned {len(rows)} rows")
+        
+        if not rows:
+            print("⚠️ No rows returned from database")
+            return []
+        
+        records = []
+        for row in rows:
+            try:
+                # Get items statistics for this record
+                cursor2 = conn.cursor(dictionary=True)
+                cursor2.execute("""
+                    SELECT 
+                        COUNT(*) as item_count,
+                        SUM(CASE WHEN validation_result = 'PASS' THEN 1 ELSE 0 END) as pass_count,
+                        SUM(CASE WHEN validation_result = 'FAIL' THEN 1 ELSE 0 END) as fail_count
+                    FROM record_item
+                    WHERE record_id = %s
+                """, (row['id'],))
+                
+                stats = cursor2.fetchone()
+                cursor2.close()
+                
+                # Build record dict
+                record = {
+                    'id': row['id'],
+                    'batch_code': row.get('batch_code', ''),
+                    'status': row.get('status', ''),
+                    'total_items': int(row.get('total_items', 0) or stats.get('item_count', 0) or 0),
+                    'pass_count': int(stats.get('pass_count') or 0),
+                    'fail_count': int(stats.get('fail_count') or 0)
+                }
+                
+                # Handle datetime fields
+                if row.get('start_time'):
+                    record['start_time'] = row['start_time'].isoformat()
+                else:
+                    record['start_time'] = None
+                
+                if row.get('end_time'):
+                    record['end_time'] = row['end_time'].isoformat()
+                else:
+                    record['end_time'] = None
+                
+                # Handle scanner_used
+                scanner_used = row.get('scanner_used', '[]')
+                if isinstance(scanner_used, str):
+                    record['scanner_used'] = scanner_used
+                else:
+                    record['scanner_used'] = json.dumps(scanner_used)
+                
+                records.append(record)
+                print(f"  ✓ Record #{record['id']}: {record['batch_code']} ({record['status']}) - {record['total_items']} items")
+                
+            except Exception as row_error:
+                print(f"❌ Error processing row {row.get('id')}: {row_error}")
+                continue
+        
+        print(f"🎉 Successfully processed {len(records)} records")
+        return records
+        
+    except Error as e:
+        print(f"❌ MySQL Error in get_all_records: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+    except Exception as e:
+        print(f"❌ General Error in get_all_records: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+    finally:
+        cursor.close()
+        conn.close()
 
 
 # Test connection on import
