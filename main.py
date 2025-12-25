@@ -11,6 +11,47 @@ app = FastAPI(title="BCA Envelope Sorting API")
 @app.get("/")
 def health():
     return {"status": "ok"}
+# Tambahkan di main.py atau file backend Anda
+
+@app.get("/batch/list")
+def list_batches(status: str = None):
+    """Get list of all batches, optionally filtered by status"""
+    from models import get_all_records  # Anda perlu buat fungsi ini
+    
+    records = get_all_records(status)
+    return {
+        "total": len(records),
+        "records": records
+    }
+
+@app.get("/batch/{record_id}")
+def get_batch_detail(record_id: int):
+    """Get detailed info about a specific batch"""
+    record = get_record(record_id)
+    
+    if not record:
+        raise HTTPException(404, "Record not found")
+    
+    items = get_record_items(record_id)
+    scanner_used = json.loads(record["scanner_used"])
+    
+    # Calculate statistics
+    total_items = len(items)
+    pass_count = sum(1 for item in items if item.get("validation_result") == "PASS")
+    fail_count = total_items - pass_count
+    
+    return {
+        "record_id": record_id,
+        "batch_code": record.get("batch_code"),
+        "start_time": record.get("start_time"),
+        "end_time": record.get("end_time"),
+        "status": record.get("status"),
+        "scanner_used": scanner_used,
+        "total_items": total_items,
+        "pass_count": pass_count,
+        "fail_count": fail_count,
+        "items": items
+    }
 
 @app.post("/batch/start")
 def start_batch(payload: StartBatchRequest):

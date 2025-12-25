@@ -1,6 +1,25 @@
 import json
 from db2 import get_db
 from datetime import datetime
+def get_all_records(status_filter=None):
+    """Get all records from database"""
+    import sqlite3
+    
+    conn = sqlite3.connect("scanner.db")
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    if status_filter:
+        query = "SELECT * FROM records WHERE status = ? ORDER BY id DESC"
+        cursor.execute(query, (status_filter,))
+    else:
+        query = "SELECT * FROM records ORDER BY id DESC"
+        cursor.execute(query)
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return [dict(row) for row in rows]
 
 def create_record(scanner_used: list[int], batch_code: str | None = None):
     check_tables_exist()
